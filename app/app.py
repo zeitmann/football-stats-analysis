@@ -15,6 +15,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # non-interactive backend — no display needed
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy import stats
 from flask import Flask
 
@@ -191,6 +192,113 @@ def make_age_vs_market_value_chart(df: pd.DataFrame) -> str:
     ax.set_xlabel("Age (years)", fontsize=12)
     ax.set_ylabel("Market Value (€M)", fontsize=12)
     ax.legend(title="Position", fontsize=10)
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def make_players_per_position_chart(df: pd.DataFrame) -> str:
+    """Bar chart: number of players per position group (returns base64 PNG)."""
+    # Count players in each position group and sort descending
+    counts = (
+        df["position_group"]
+        .value_counts()
+        .reset_index()
+    )
+    counts.columns = ["position_group", "count"]
+
+    palette = ["#198754", "#0d6efd", "#fd7e14", "#dc3545", "#6c757d"]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.bar(
+        counts["position_group"],
+        counts["count"],
+        color=palette[: len(counts)],
+        edgecolor="white",
+        linewidth=0.8,
+    )
+
+    # Annotate each bar with its exact count
+    ax.bar_label(bars, padding=4, fontsize=11)
+
+    ax.set_title("Number of Players per Position Group", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Position Group", fontsize=12)
+    ax.set_ylabel("Number of Players", fontsize=12)
+    ax.set_ylim(0, counts["count"].max() * 1.15)
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def make_top_nationalities_chart(df: pd.DataFrame, top_n: int = 10) -> str:
+    """Bar chart: top N nationalities by player count (returns base64 PNG)."""
+    top_nat = (
+        df["nationality"]
+        .value_counts()
+        .head(top_n)
+        .reset_index()
+    )
+    top_nat.columns = ["nationality", "count"]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bars = ax.bar(
+        top_nat["nationality"],
+        top_nat["count"],
+        color=sns.color_palette("Greens_d", top_n),
+        edgecolor="white",
+        linewidth=0.8,
+    )
+
+    # Annotate each bar
+    ax.bar_label(bars, padding=3, fontsize=10)
+
+    ax.set_title(f"Top {top_n} Nationalities by Player Count", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Nationality", fontsize=12)
+    ax.set_ylabel("Number of Players", fontsize=12)
+    ax.set_ylim(0, top_nat["count"].max() * 1.15)
+    ax.tick_params(axis="x", rotation=30)
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def make_age_distribution_chart(df: pd.DataFrame) -> str:
+    """Boxplot: age distribution per position group (returns base64 PNG)."""
+    # Drop rows where age is missing before plotting
+    age_data = df.dropna(subset=["age", "position_group"])
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    sns.boxplot(
+        data=age_data,
+        x="position_group",
+        y="age",
+        palette="Purples",
+        ax=ax,
+    )
+
+    ax.set_title("Age Distribution per Position Group", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Position Group", fontsize=12)
+    ax.set_ylabel("Age (years)", fontsize=12)
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def make_correlation_matrix_chart(df: pd.DataFrame) -> str:
+    """Heatmap of the Pearson correlation matrix for all numeric columns (returns base64 PNG)."""
+    # Keep only numeric columns that actually vary
+    numeric_df = df.select_dtypes(include=[np.number]).dropna(axis=1, how="all")
+
+    corr = numeric_df.corr()
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sns.heatmap(
+        corr,
+        annot=True,
+        fmt=".2f",
+        cmap="coolwarm",
+        center=0,
+        linewidths=0.4,
+        ax=ax,
+    )
+
+    ax.set_title("Correlation Matrix of Numeric Player Attributes",
+                 fontsize=14, fontweight="bold")
     plt.tight_layout()
     return _fig_to_base64(fig)
 
@@ -470,51 +578,78 @@ def analysis():
 
 @app.route("/charts")
 def charts():
-    """Charts page — two matplotlib charts embedded as base64 PNG images."""
+    """Charts page — 6 matplotlib/seaborn charts embedded as base64 PNG images."""
     df = load_dataframe()
 
-    # Generate both charts (returns base64 PNG strings)
-    bar_b64     = make_avg_market_value_chart(df)
-    scatter_b64 = make_age_vs_market_value_chart(df)
+    # Generate all six charts; each returns a base64-encoded PNG string
+    positions_b64    = make_players_per_position_chart(df)
+    nationalities_b64 = make_top_nationalities_chart(df)
+    age_box_b64      = make_age_distribution_chart(df)
+    corr_b64         = make_correlation_matrix_chart(df)
+    avg_mv_b64       = make_avg_market_value_chart(df)
+    scatter_b64      = make_age_vs_market_value_chart(df)
 
-    content = f"""
-<div class="row g-4">
+    # Each entry: (title, description, alt-text, base64 string)
+    chart_cards = [
+        (
+            "Players per Position",
+            "Number of players in each position group across all Premier League squads.",
+            "Bar chart: players per position group",
+            positions_b64,
+        ),
+        (
+            "Top 10 Nationalities",
+            "The ten most common nationalities represented in the dataset.",
+            "Bar chart: top 10 nationalities by player count",
+            nationalities_b64,
+        ),
+        (
+            "Age Distribution per Position",
+            "Boxplot of player ages split by position — shows median, spread, and outliers.",
+            "Boxplot: age distribution per position group",
+            age_box_b64,
+        ),
+        (
+            "Correlation Matrix",
+            "Pearson correlation heatmap of all numeric player attributes.",
+            "Heatmap: correlation matrix of numeric columns",
+            corr_b64,
+        ),
+        (
+            "Average Market Value per Position",
+            "Mean player market value in €M, grouped by field position.",
+            "Bar chart: average market value per position",
+            avg_mv_b64,
+        ),
+        (
+            "Age vs Market Value by Position",
+            "Each dot is one player; colour indicates position group.",
+            "Scatter plot: age vs market value coloured by position",
+            scatter_b64,
+        ),
+    ]
 
-  <!-- Bar chart -->
+    # Build 2-column Bootstrap grid — one card per chart
+    cards_html = ""
+    for title, description, alt, b64 in chart_cards:
+        cards_html += f"""
   <div class="col-lg-6">
     <div class="card shadow-sm h-100">
       <div class="card-body">
-        <h5 class="card-title">Average Market Value per Position</h5>
-        <p class="text-muted small">
-          Mean player market value in € millions, grouped by field position.
-        </p>
-        <img src="data:image/png;base64,{bar_b64}"
+        <h5 class="card-title">{title}</h5>
+        <p class="text-muted small mb-2">{description}</p>
+        <img src="data:image/png;base64,{b64}"
              class="img-fluid rounded"
-             alt="Bar chart: average market value per position">
+             alt="{alt}">
       </div>
     </div>
-  </div>
+  </div>"""
 
-  <!-- Scatter plot -->
-  <div class="col-lg-6">
-    <div class="card shadow-sm h-100">
-      <div class="card-body">
-        <h5 class="card-title">Age vs Market Value by Position</h5>
-        <p class="text-muted small">
-          Each dot is one player, coloured by position group.
-        </p>
-        <img src="data:image/png;base64,{scatter_b64}"
-             class="img-fluid rounded"
-             alt="Scatter plot: age vs market value by position">
-      </div>
-    </div>
-  </div>
-
-</div>"""
+    content = f'<div class="row g-4">{cards_html}\n</div>'
 
     return render_page(
         title="Charts",
-        description="Visual summaries of the football player dataset generated with matplotlib.",
+        description="Six matplotlib/seaborn visualisations of the football player dataset.",
         content=content,
         active="/charts",
     )
