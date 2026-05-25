@@ -21,3 +21,10 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+
+*.csv
+*.json
+*.db
+__pycache__/
+.env
+*.ipynb_checkpoints
